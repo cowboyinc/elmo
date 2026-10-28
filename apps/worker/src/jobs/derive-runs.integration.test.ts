@@ -10,10 +10,17 @@ import {
 	rollupDirty,
 	runExtractions,
 	runMentions,
+	secrets,
 } from "@workspace/lib/db/schema";
 import { mentionConfigFrom } from "@workspace/lib/mentions";
+import {
+	clearCredentialOverlay,
+	getCredential,
+	refreshCredentialOverlay,
+	setOrganizationCredential,
+} from "@workspace/lib/secrets";
 import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cuedAnalyzer } from "../mention-judge/__fixtures__/cued-judge";
 import type { MentionAnalyzer } from "../mention-judge/analyze";
 import { deriveQueue } from "./__fixtures__/derive-queue";
@@ -40,6 +47,9 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+	await db.delete(secrets).where(eq(secrets.organizationId, brandId));
+	clearCredentialOverlay();
+	vi.unstubAllEnvs();
 	await db.delete(rollupDirty).where(eq(rollupDirty.brandId, brandId));
 	await db.delete(citations).where(eq(citations.brandId, brandId));
 	await db.delete(promptRuns).where(eq(promptRuns.brandId, brandId));
@@ -86,6 +96,25 @@ async function currentMentionsStamp() {
 }
 
 describe("deriving a recorded run", () => {
+	it("judges with the credentials of the brand's organization", async () => {
+		vi.stubEnv("ELMO_ENCRYPTION_KEY", Buffer.alloc(32, 7).toString("base64"));
+		vi.stubEnv("OPENROUTER_API_KEY", "instance-key");
+		await setOrganizationCredential(brandId, "OPENROUTER_API_KEY", "org-key");
+		await refreshCredentialOverlay();
+		let judgedWith: string | undefined;
+		const analyzer: MentionAnalyzer = {
+			...cuedAnalyzer,
+			analyze: async (text, config, previous) => {
+				judgedWith = getCredential("OPENROUTER_API_KEY");
+				return cuedAnalyzer.analyze(text, config, previous);
+			},
+		};
+
+		await deriveRuns({ brandId, runIds: [await recordedRun("Acme is great.")] }, db, deriveQueue().boss, analyzer);
+
+		expect(judgedWith).toBe("org-key");
+	});
+
 	it("leaves a judged run older than the window as it is, even when queued, but judges one never judged", async () => {
 		const longAgo = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000);
 		const judged = await recordedRun("Acme long ago.", longAgo);

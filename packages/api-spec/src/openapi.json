@@ -1607,6 +1607,28 @@
 				},
 				"required": ["data", "pagination"]
 			},
+			"SetOrganizationCredentialRequest": {
+				"type": "object",
+				"properties": {
+					"value": {
+						"type": "string",
+						"minLength": 1,
+						"description": "The credential, exactly as the provider issued it"
+					}
+				},
+				"required": ["value"]
+			},
+			"OrganizationCredential": {
+				"type": "object",
+				"description": "The credential's name. The value is never returned.",
+				"properties": {
+					"name": {
+						"type": "string",
+						"example": "OPENAI_API_KEY"
+					}
+				},
+				"required": ["name"]
+			},
 			"Tag": {
 				"type": "object",
 				"properties": {
@@ -2322,6 +2344,16 @@
 					"application/json": {
 						"schema": {
 							"$ref": "#/components/schemas/CreateCompetitorRequest"
+						}
+					}
+				}
+			},
+			"SetOrganizationCredentialRequest": {
+				"required": true,
+				"content": {
+					"application/json": {
+						"schema": {
+							"$ref": "#/components/schemas/SetOrganizationCredentialRequest"
 						}
 					}
 				}
@@ -3371,6 +3403,126 @@
 								}
 							}
 						}
+					},
+					"401": {
+						"$ref": "#/components/responses/UnauthorizedError"
+					},
+					"403": {
+						"$ref": "#/components/responses/ForbiddenError"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFoundError"
+					},
+					"429": {
+						"$ref": "#/components/responses/RateLimitError"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalServerError"
+					}
+				}
+			}
+		},
+		"/organizations/{organizationId}/credentials/{name}": {
+			"put": {
+				"summary": "Set an organization credential",
+				"description": "Store this organization's own value for a provider credential. The organization's runs use it in place of the instance-wide one, and every credential it does not set still falls back to the instance's. A new value reaches the worker within a minute.\n\nThe value is encrypted at rest and is never returned. Answers `409` when the instance has no `ELMO_ENCRYPTION_KEY`.",
+				"operationId": "setOrganizationCredential",
+				"tags": ["Organizations"],
+				"x-elmo-scopes": ["write"],
+				"parameters": [
+					{
+						"name": "organizationId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "name",
+						"in": "path",
+						"required": true,
+						"description": "The environment variable the credential stands in for, such as `OPENAI_API_KEY`. Only provider credentials are accepted.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"$ref": "#/components/requestBodies/SetOrganizationCredentialRequest"
+				},
+				"responses": {
+					"200": {
+						"description": "Set an organization credential",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/OrganizationCredential"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ValidationError"
+					},
+					"401": {
+						"$ref": "#/components/responses/UnauthorizedError"
+					},
+					"403": {
+						"$ref": "#/components/responses/ForbiddenError"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFoundError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ConflictError"
+					},
+					"429": {
+						"$ref": "#/components/responses/RateLimitError"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalServerError"
+					}
+				}
+			},
+			"delete": {
+				"summary": "Delete an organization credential",
+				"description": "Remove this organization's own value, so its runs use the instance-wide credential again. Succeeds when none was set.",
+				"operationId": "deleteOrganizationCredential",
+				"tags": ["Organizations"],
+				"x-elmo-scopes": ["write"],
+				"parameters": [
+					{
+						"name": "organizationId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "name",
+						"in": "path",
+						"required": true,
+						"description": "The environment variable the credential stands in for, such as `OPENAI_API_KEY`. Only provider credentials are accepted.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Delete an organization credential",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/OrganizationCredential"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ValidationError"
 					},
 					"401": {
 						"$ref": "#/components/responses/UnauthorizedError"

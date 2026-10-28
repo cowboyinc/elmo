@@ -14,8 +14,11 @@ export {
 export { startCredentialRefresh, storedCredentialsLoaded } from "./refresh";
 export {
 	clearCredentialOverlay,
+	deleteOrganizationCredential,
 	encryptCredential,
 	getCredential,
 	refreshCredentialOverlay,
+	setOrganizationCredential,
+	withOrganization,
 	withStoredCredentials,
 } from "./store";

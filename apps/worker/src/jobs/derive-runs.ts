@@ -24,6 +24,7 @@ import {
 } from "@workspace/lib/db/schema";
 import { type MentionConfig, mentionConfigFrom, type RunMentionAssessments } from "@workspace/lib/mentions";
 import { insertRunsCitations, markDirty, REFRESH_ROLLUPS_QUEUE } from "@workspace/lib/rollups";
+import { withOrganization } from "@workspace/lib/secrets";
 import { type Citation, extractorFor, extractRun } from "@workspace/lib/text-extraction";
 import { and, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { Job, PgBoss, QueueOptions } from "pg-boss";
@@ -239,7 +240,11 @@ async function loadTarget(conn: DbConnection, brandId: string, analyzer: Mention
 	if (!brand) return null;
 	const brandCompetitors = await conn.select().from(competitors).where(eq(competitors.brandId, brandId));
 	const config = mentionConfigFrom(brand, brandCompetitors);
-	return { config, target: currentAnalysisVersions(config, analyzer.judgeVersion) };
+	return {
+		organizationId: brand.organizationId,
+		config,
+		target: currentAnalysisVersions(config, analyzer.judgeVersion),
+	};
 }
 
 /**
@@ -306,7 +311,9 @@ export async function deriveRuns(
 	const failed: string[] = [];
 	for (const run of runs) {
 		try {
-			const update = await deriveRunUpdate(run, context.target, context.config, analyzer, reextract);
+			const update = await withOrganization(context.organizationId, () =>
+				deriveRunUpdate(run, context.target, context.config, analyzer, reextract),
+			);
 			if (update.extraction || update.mentions || update.citations) updates.push({ run, update });
 		} catch (error) {
 			if (data.runIds.length === 1) throw error;

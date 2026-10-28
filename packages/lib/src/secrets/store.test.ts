@@ -21,14 +21,16 @@ import {
 	encryptCredential,
 	getCredential,
 	refreshCredentialOverlay,
+	withOrganization,
 	withStoredCredentials,
 } from "./store";
 
 const KEY = Buffer.alloc(32, 7);
 const KEY_B64 = KEY.toString("base64");
 
-async function encryptedRow(name: string, value: string, key: Buffer = KEY) {
-	return { name, encryptedValue: await encryptSecret(value, { key, aad: `secret:${name}` }) };
+async function encryptedRow(name: string, value: string, key: Buffer = KEY, organizationId = "") {
+	const aad = organizationId ? `secret:${organizationId}:${name}` : `secret:${name}`;
+	return { organizationId, name, encryptedValue: await encryptSecret(value, { key, aad }) };
 }
 
 beforeEach(() => {
@@ -107,7 +109,7 @@ describe("refreshCredentialOverlay", () => {
 	it("rejects a ciphertext replayed under another credential's name", async () => {
 		vi.stubEnv("ANTHROPIC_API_KEY", undefined);
 		const stolen = await encryptedRow("OPENAI_API_KEY", "openai-secret");
-		dbState.rows = [{ name: "ANTHROPIC_API_KEY", encryptedValue: stolen.encryptedValue }];
+		dbState.rows = [{ organizationId: "", name: "ANTHROPIC_API_KEY", encryptedValue: stolen.encryptedValue }];
 
 		await refreshCredentialOverlay();
 
@@ -204,9 +206,23 @@ describe("encryptCredential", () => {
 		vi.stubEnv("ELMO_ENCRYPTION_KEY", KEY_B64);
 		const encryptedValue = await encryptCredential("OXYLABS_PASSWORD", "longer-secret");
 
-		dbState.rows = [{ name: "OXYLABS_PASSWORD", encryptedValue }];
+		dbState.rows = [{ organizationId: "", name: "OXYLABS_PASSWORD", encryptedValue }];
 		await refreshCredentialOverlay();
 		expect(getCredential("OXYLABS_PASSWORD")).toBe("longer-secret");
+	});
+
+	it("produces an organization payload that only that organization's overlay accepts", async () => {
+		vi.stubEnv("ELMO_ENCRYPTION_KEY", KEY_B64);
+		vi.stubEnv("OXYLABS_PASSWORD", undefined);
+		const encryptedValue = await encryptCredential("OXYLABS_PASSWORD", "org-secret", "org-a");
+
+		dbState.rows = [{ organizationId: "org-a", name: "OXYLABS_PASSWORD", encryptedValue }];
+		await refreshCredentialOverlay();
+		expect(withOrganization("org-a", () => getCredential("OXYLABS_PASSWORD"))).toBe("org-secret");
+
+		dbState.rows = [{ organizationId: "org-b", name: "OXYLABS_PASSWORD", encryptedValue }];
+		await refreshCredentialOverlay();
+		expect(withOrganization("org-b", () => getCredential("OXYLABS_PASSWORD"))).toBeUndefined();
 	});
 
 	it("rejects a name that is not an overridable credential", async () => {
@@ -217,5 +233,97 @@ describe("encryptCredential", () => {
 	it("throws EncryptionKeyError when no encryption key is set", async () => {
 		vi.stubEnv("ELMO_ENCRYPTION_KEY", undefined);
 		await expect(encryptCredential("OPENAI_API_KEY", "x")).rejects.toThrow(EncryptionKeyError);
+	});
+});
+
+describe("organization credentials", () => {
+	beforeEach(() => vi.stubEnv("ELMO_ENCRYPTION_KEY", KEY_B64));
+
+	const inOrg = (organizationId: string, name: string) => withOrganization(organizationId, () => getCredential(name));
+
+	it("an organization's value beats the instance's, which beats process.env", async () => {
+		vi.stubEnv("OPENAI_API_KEY", "env-value");
+		vi.stubEnv("OXYLABS_USERNAME", "env-user");
+		dbState.rows = [
+			await encryptedRow("OPENAI_API_KEY", "instance-value"),
+			await encryptedRow("OPENAI_API_KEY", "org-a-value", KEY, "org-a"),
+		];
+
+		await refreshCredentialOverlay();
+
+		expect(inOrg("org-a", "OPENAI_API_KEY")).toBe("org-a-value");
+		expect(getCredential("OPENAI_API_KEY")).toBe("instance-value");
+		expect(inOrg("org-a", "OXYLABS_USERNAME")).toBe("env-user");
+	});
+
+	it("falls back to the instance's value, then process.env, for a credential the organization has not set", async () => {
+		vi.stubEnv("OXYLABS_USERNAME", "env-user");
+		vi.stubEnv("BRIGHTDATA_API_TOKEN", undefined);
+		dbState.rows = [
+			await encryptedRow("OPENAI_API_KEY", "instance-value"),
+			await encryptedRow("OXYLABS_PASSWORD", "org-a-password", KEY, "org-a"),
+		];
+
+		await refreshCredentialOverlay();
+
+		expect(inOrg("org-a", "OPENAI_API_KEY")).toBe("instance-value");
+		expect(inOrg("org-a", "OXYLABS_USERNAME")).toBe("env-user");
+		expect(inOrg("org-a", "BRIGHTDATA_API_TOKEN")).toBeUndefined();
+	});
+
+	it("never shows one organization another's value", async () => {
+		vi.stubEnv("OPENAI_API_KEY", "env-value");
+		dbState.rows = [await encryptedRow("OPENAI_API_KEY", "org-a-value", KEY, "org-a")];
+
+		await refreshCredentialOverlay();
+
+		expect(inOrg("org-b", "OPENAI_API_KEY")).toBe("env-value");
+		expect(getCredential("OPENAI_API_KEY")).toBe("env-value");
+		expect(withStoredCredentials({ OPENAI_API_KEY: "env-value" }).OPENAI_API_KEY).toBe("env-value");
+	});
+
+	it("keeps each concurrent run on its own organization across awaits", async () => {
+		dbState.rows = [
+			await encryptedRow("OPENAI_API_KEY", "org-a-value", KEY, "org-a"),
+			await encryptedRow("OPENAI_API_KEY", "org-b-value", KEY, "org-b"),
+		];
+		await refreshCredentialOverlay();
+
+		const run = (organizationId: string, delayMs: number) =>
+			withOrganization(organizationId, async () => {
+				await new Promise((resolve) => setTimeout(resolve, delayMs));
+				return getCredential("OPENAI_API_KEY");
+			});
+
+		expect(await Promise.all([run("org-a", 20), run("org-b", 1)])).toEqual(["org-a-value", "org-b-value"]);
+	});
+
+	it("refuses a payload replayed under another organization or the instance scope", async () => {
+		vi.stubEnv("OPENAI_API_KEY", undefined);
+		const stolen = (await encryptedRow("OPENAI_API_KEY", "org-a-value", KEY, "org-a")).encryptedValue;
+		const instance = (await encryptedRow("ANTHROPIC_API_KEY", "instance-value")).encryptedValue;
+		vi.stubEnv("ANTHROPIC_API_KEY", undefined);
+		dbState.rows = [
+			{ organizationId: "org-b", name: "OPENAI_API_KEY", encryptedValue: stolen },
+			{ organizationId: "", name: "OPENAI_API_KEY", encryptedValue: stolen },
+			{ organizationId: "org-b", name: "ANTHROPIC_API_KEY", encryptedValue: instance },
+		];
+
+		await refreshCredentialOverlay();
+
+		expect(inOrg("org-b", "OPENAI_API_KEY")).toBeUndefined();
+		expect(getCredential("OPENAI_API_KEY")).toBeUndefined();
+		expect(inOrg("org-b", "ANTHROPIC_API_KEY")).toBeUndefined();
+	});
+
+	it("forgets an organization's value once its row is gone", async () => {
+		vi.stubEnv("OPENAI_API_KEY", "env-value");
+		dbState.rows = [await encryptedRow("OPENAI_API_KEY", "org-a-value", KEY, "org-a")];
+		await refreshCredentialOverlay();
+		expect(inOrg("org-a", "OPENAI_API_KEY")).toBe("org-a-value");
+
+		dbState.rows = [];
+		await refreshCredentialOverlay();
+		expect(inOrg("org-a", "OPENAI_API_KEY")).toBe("env-value");
 	});
 });

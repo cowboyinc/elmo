@@ -343,16 +343,23 @@ export const usageEvents = pgTable(
 export type UsageEvent = typeof usageEvents.$inferSelect;
 
 // Encrypted overrides for credential environment variables, keyed by the env-var
-// name they stand in for. Separate table, strictest access.
-export const secrets = pgTable("secrets", {
-	name: text("name").primaryKey().notNull(),
-	encryptedValue: text("encrypted_value").notNull(),
-	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true })
-		.defaultNow()
-		.$onUpdate(() => new Date())
-		.notNull(),
-}).enableRLS();
+// name they stand in for. Separate table, strictest access. `organization_id` is
+// '' for the instance-wide override rather than null, because null key parts
+// never compare equal and the primary key could not hold the instance row to one.
+export const secrets = pgTable(
+	"secrets",
+	{
+		organizationId: text("organization_id").notNull().default(""),
+		name: text("name").notNull(),
+		encryptedValue: text("encrypted_value").notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(table) => [primaryKey({ name: "secrets_pkey", columns: [table.organizationId, table.name] })],
+).enableRLS();
 
 /**
  * A function so each table gets its own column builders. `provider` is '' rather

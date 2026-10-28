@@ -16,6 +16,7 @@ import {
 	selectDueTargets,
 	slowestIntervalHours,
 } from "@workspace/lib/run-policy";
+import { withOrganization } from "@workspace/lib/secrets";
 import { estimateRunCostUsd } from "@workspace/lib/usage";
 import { and, eq, gt, sql } from "drizzle-orm";
 import type { Job } from "pg-boss";
@@ -226,10 +227,12 @@ async function runModelIteration({
 	const logPrefix = `[${config.model}_${runIndex}]`;
 
 	try {
-		const result = await providerImpl.run(config.model, promptValue, {
-			webSearch: config.webSearch,
-			version: config.version,
-		});
+		const result = await withOrganization(brand.organizationId, () =>
+			providerImpl.run(config.model, promptValue, {
+				webSearch: config.webSearch,
+				version: config.version,
+			}),
+		);
 
 		// `webQueries` is stored exactly as the provider reported it — engines do
 		// sometimes genuinely search the prompt verbatim, and that's real data. The

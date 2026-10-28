@@ -81,6 +81,7 @@ import { Route as AuthedAppOrgOrgSettingsSkillRouteImport } from './routes/_auth
 import { Route as ApiV1BrandsBrandIdCitationsDomainsRouteImport } from './routes/api/v1/brands/$brandId/citations/domains'
 import { Route as ApiV1BrandsBrandIdCitationsUrlsRouteImport } from './routes/api/v1/brands/$brandId/citations/urls'
 import { Route as ApiV1BrandsBrandIdTagsIndexRouteImport } from './routes/api/v1/brands/$brandId/tags/index'
+import { Route as ApiV1OrganizationsOrganizationIdCredentialsNameRouteImport } from './routes/api/v1/organizations/$organizationId/credentials/$name'
 import { Route as ApiV1PromptsPromptIdRunsIndexRouteImport } from './routes/api/v1/prompts/$promptId/runs/index'
 import { Route as ApiV1PromptsPromptIdRunsRunIdRouteImport } from './routes/api/v1/prompts/$promptId/runs/$runId'
 import { Route as AuthedAppOrgOrgBrandBrandIndexRouteImport } from './routes/_authed/app/org/$org/brand/$brand/index'
@@ -488,6 +489,12 @@ const ApiV1BrandsBrandIdTagsIndexRoute =
     path: '/tags/',
     getParentRoute: () => ApiV1BrandsBrandIdRoute,
   } as any)
+const ApiV1OrganizationsOrganizationIdCredentialsNameRoute =
+  ApiV1OrganizationsOrganizationIdCredentialsNameRouteImport.update({
+    id: '/credentials/$name',
+    path: '/credentials/$name',
+    getParentRoute: () => ApiV1OrganizationsOrganizationIdRoute,
+  } as any)
 const ApiV1PromptsPromptIdRunsIndexRoute =
   ApiV1PromptsPromptIdRunsIndexRouteImport.update({
     id: '/runs/',
@@ -673,6 +680,7 @@ export interface FileRoutesByFullPath {
   '/app/org/$org/settings/skill': typeof AuthedAppOrgOrgSettingsSkillRoute
   '/api/v1/brands/$brandId/citations/domains': typeof ApiV1BrandsBrandIdCitationsDomainsRoute
   '/api/v1/brands/$brandId/citations/urls': typeof ApiV1BrandsBrandIdCitationsUrlsRoute
+  '/api/v1/organizations/$organizationId/credentials/$name': typeof ApiV1OrganizationsOrganizationIdCredentialsNameRoute
   '/api/v1/prompts/$promptId/runs/$runId': typeof ApiV1PromptsPromptIdRunsRunIdRoute
   '/app/org/$org/settings/': typeof AuthedAppOrgOrgSettingsIndexRoute
   '/api/v1/brands/$brandId/tags/': typeof ApiV1BrandsBrandIdTagsIndexRoute
@@ -759,6 +767,7 @@ export interface FileRoutesByTo {
   '/app/org/$org/settings/skill': typeof AuthedAppOrgOrgSettingsSkillRoute
   '/api/v1/brands/$brandId/citations/domains': typeof ApiV1BrandsBrandIdCitationsDomainsRoute
   '/api/v1/brands/$brandId/citations/urls': typeof ApiV1BrandsBrandIdCitationsUrlsRoute
+  '/api/v1/organizations/$organizationId/credentials/$name': typeof ApiV1OrganizationsOrganizationIdCredentialsNameRoute
   '/api/v1/prompts/$promptId/runs/$runId': typeof ApiV1PromptsPromptIdRunsRunIdRoute
   '/app/org/$org/settings': typeof AuthedAppOrgOrgSettingsIndexRoute
   '/api/v1/brands/$brandId/tags': typeof ApiV1BrandsBrandIdTagsIndexRoute
@@ -853,6 +862,7 @@ export interface FileRoutesById {
   '/_authed/app/org/$org/settings/skill': typeof AuthedAppOrgOrgSettingsSkillRoute
   '/api/v1/brands/$brandId/citations/domains': typeof ApiV1BrandsBrandIdCitationsDomainsRoute
   '/api/v1/brands/$brandId/citations/urls': typeof ApiV1BrandsBrandIdCitationsUrlsRoute
+  '/api/v1/organizations/$organizationId/credentials/$name': typeof ApiV1OrganizationsOrganizationIdCredentialsNameRoute
   '/api/v1/prompts/$promptId/runs/$runId': typeof ApiV1PromptsPromptIdRunsRunIdRoute
   '/_authed/app/org/$org/settings/': typeof AuthedAppOrgOrgSettingsIndexRoute
   '/api/v1/brands/$brandId/tags/': typeof ApiV1BrandsBrandIdTagsIndexRoute
@@ -947,6 +957,7 @@ export interface FileRouteTypes {
     | '/app/org/$org/settings/skill'
     | '/api/v1/brands/$brandId/citations/domains'
     | '/api/v1/brands/$brandId/citations/urls'
+    | '/api/v1/organizations/$organizationId/credentials/$name'
     | '/api/v1/prompts/$promptId/runs/$runId'
     | '/app/org/$org/settings/'
     | '/api/v1/brands/$brandId/tags/'
@@ -1033,6 +1044,7 @@ export interface FileRouteTypes {
     | '/app/org/$org/settings/skill'
     | '/api/v1/brands/$brandId/citations/domains'
     | '/api/v1/brands/$brandId/citations/urls'
+    | '/api/v1/organizations/$organizationId/credentials/$name'
     | '/api/v1/prompts/$promptId/runs/$runId'
     | '/app/org/$org/settings'
     | '/api/v1/brands/$brandId/tags'
@@ -1126,6 +1138,7 @@ export interface FileRouteTypes {
     | '/_authed/app/org/$org/settings/skill'
     | '/api/v1/brands/$brandId/citations/domains'
     | '/api/v1/brands/$brandId/citations/urls'
+    | '/api/v1/organizations/$organizationId/credentials/$name'
     | '/api/v1/prompts/$promptId/runs/$runId'
     | '/_authed/app/org/$org/settings/'
     | '/api/v1/brands/$brandId/tags/'
@@ -1695,6 +1708,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1BrandsBrandIdTagsIndexRouteImport
       parentRoute: typeof ApiV1BrandsBrandIdRoute
     }
+    '/api/v1/organizations/$organizationId/credentials/$name': {
+      id: '/api/v1/organizations/$organizationId/credentials/$name'
+      path: '/credentials/$name'
+      fullPath: '/api/v1/organizations/$organizationId/credentials/$name'
+      preLoaderRoute: typeof ApiV1OrganizationsOrganizationIdCredentialsNameRouteImport
+      parentRoute: typeof ApiV1OrganizationsOrganizationIdRoute
+    }
     '/api/v1/prompts/$promptId/runs/': {
       id: '/api/v1/prompts/$promptId/runs/'
       path: '/runs'
@@ -2033,12 +2053,15 @@ const ApiV1BrandsBrandIdRouteWithChildren =
 
 interface ApiV1OrganizationsOrganizationIdRouteChildren {
   ApiV1OrganizationsOrganizationIdBillingRoute: typeof ApiV1OrganizationsOrganizationIdBillingRoute
+  ApiV1OrganizationsOrganizationIdCredentialsNameRoute: typeof ApiV1OrganizationsOrganizationIdCredentialsNameRoute
 }
 
 const ApiV1OrganizationsOrganizationIdRouteChildren: ApiV1OrganizationsOrganizationIdRouteChildren =
   {
     ApiV1OrganizationsOrganizationIdBillingRoute:
       ApiV1OrganizationsOrganizationIdBillingRoute,
+    ApiV1OrganizationsOrganizationIdCredentialsNameRoute:
+      ApiV1OrganizationsOrganizationIdCredentialsNameRoute,
   }
 
 const ApiV1OrganizationsOrganizationIdRouteWithChildren =
