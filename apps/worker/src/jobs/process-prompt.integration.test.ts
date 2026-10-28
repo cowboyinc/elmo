@@ -25,6 +25,7 @@ vi.mock("@workspace/lib/providers", async (importOriginal) => {
 		getProvider: (id: string) =>
 			id === "openai-api"
 				? {
+						isConfigured: () => true,
 						run: async (_model: string, prompt: string) => {
 							await new Promise((resolve) => setTimeout(resolve, prompt.includes("slow") ? 30 : 1));
 							keysSeen.set(prompt, getCredential("OPENAI_API_KEY"));
@@ -125,5 +126,22 @@ describe("processPromptJob credentials", () => {
 		expect(new Set(authorizations)).toEqual(new Set(["Bearer openrouter-key-for-a"]));
 		const saved = await db.select({ id: promptRuns.id }).from(promptRuns).where(eq(promptRuns.brandId, a.orgId));
 		expect(saved).toHaveLength(authorizations.length);
+	});
+
+	it("skips a target whose provider has no key for the organization or the instance, without calling the provider", async () => {
+		const a = await createBrandWithPrompt("prompt for A");
+		created.push(a.orgId);
+		vi.stubEnv("SCRAPE_TARGETS", "chatgpt:openrouter:openai/gpt-5");
+		vi.stubEnv("OPENROUTER_API_KEY", "");
+		await refreshCredentialOverlay();
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+		await processPromptJob([job(a.promptId)]);
+
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect(console.warn).toHaveBeenCalledWith(
+			`Skipping chatgpt:openrouter: no credential for openrouter in organization ${a.orgId} or instance`,
+		);
+		expect(await db.select().from(promptRuns).where(eq(promptRuns.brandId, a.orgId))).toEqual([]);
 	});
 });

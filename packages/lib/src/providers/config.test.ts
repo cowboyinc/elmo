@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { parseScrapeTargets } from "@workspace/config/scrape-targets";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { reportedWebQueries, validateScrapeTargets } from "./config";
+import { getProvider } from "./index";
 import { brightdata } from "./registry/brightdata";
 import { cloro } from "./registry/cloro";
 import { dataforseo } from "./registry/dataforseo";
@@ -29,11 +31,36 @@ describe("validateScrapeTargets", () => {
 		expect(() => validateScrapeTargets(configs, makeGetProvider({}))).toThrow('unknown provider "nonexistent"');
 	});
 
-	it("throws when provider is not configured", () => {
-		const configs = [{ model: "chatgpt", provider: "olostep", webSearch: true }];
-		expect(() => validateScrapeTargets(configs, makeGetProvider({ olostep: unconfiguredProvider }))).toThrow(
-			"requires API key",
-		);
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		vi.restoreAllMocks();
+	});
+
+	it("passes with a notice per target when the instance has no credential for its provider", () => {
+		vi.stubEnv("OLOSTEP_API_KEY", "");
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		const configs = [
+			{ model: "chatgpt", provider: "olostep", webSearch: true },
+			{ model: "google-ai-mode", provider: "olostep", webSearch: true },
+		];
+
+		expect(() => validateScrapeTargets(configs, makeGetProvider({ olostep: unconfiguredProvider }))).not.toThrow();
+
+		expect(log.mock.calls.map(([line]) => line)).toEqual([
+			'SCRAPE_TARGETS: "chatgpt:olostep" has no instance credential: OLOSTEP_API_KEY. It needs organization credentials to run.',
+			'SCRAPE_TARGETS: "google-ai-mode:olostep" has no instance credential: OLOSTEP_API_KEY. It needs organization credentials to run.',
+		]);
+	});
+
+	it("accepts OpenRouter with no OPENROUTER_API_KEY anywhere, naming the key it needs", () => {
+		vi.stubEnv("OPENROUTER_API_KEY", "");
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+		validateScrapeTargets(parseScrapeTargets("chatgpt:openrouter:openai/gpt-5-mini:online"), getProvider);
+
+		expect(log.mock.calls.map(([line]) => line)).toEqual([
+			'SCRAPE_TARGETS: "chatgpt:openrouter" has no instance credential: OPENROUTER_API_KEY. It needs organization credentials to run.',
+		]);
 	});
 
 	it("throws when openai-api provider has no version", () => {
@@ -70,7 +97,7 @@ describe("validateScrapeTargets", () => {
 			{ model: "claude", provider: "anthropic-api", webSearch: true },
 		];
 		expect(() => validateScrapeTargets(configs, makeGetProvider({ "anthropic-api": unconfiguredProvider }))).toThrow(
-			/unknown provider "nonexistent"[\s\S]*"anthropic-api" requires API key\(s\) to be configured: ANTHROPIC_API_KEY[\s\S]*requires a version slug/,
+			/unknown provider "nonexistent"[\s\S]*requires a version slug/,
 		);
 	});
 

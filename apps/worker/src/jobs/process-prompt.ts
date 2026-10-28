@@ -362,11 +362,19 @@ async function runPrompt(
 		return;
 	}
 
+	const runnableTargets = dueTargets.filter((target) => {
+		if (getProvider(target.config.provider).isConfigured()) return true;
+		console.warn(
+			`Skipping ${target.config.model}:${target.config.provider}: no credential for ${target.config.provider} in organization ${brand.organizationId} or instance`,
+		);
+		return false;
+	});
+
 	console.log(
-		`Processing prompt "${prompt.value}" for brand "${brand.name}" — ${dueTargets.length}/${plan.targets.length} targets due`,
+		`Processing prompt "${prompt.value}" for brand "${brand.name}" — ${runnableTargets.length}/${plan.targets.length} targets due`,
 	);
 
-	const runPromises = dueTargets.flatMap((target) => {
+	const runPromises = runnableTargets.flatMap((target) => {
 		const providerImpl = getProvider(target.config.provider);
 		return Array.from({ length: target.replication }, (_, i) =>
 			runModelIteration({
@@ -397,8 +405,8 @@ async function runPrompt(
 
 	trackWorkerEvent("prompt_processed", {
 		brand_id: brand.id,
-		models: [...new Set(dueTargets.map((t) => t.config.model))],
-		providers: [...new Set(dueTargets.map((t) => t.config.provider))],
+		models: [...new Set(runnableTargets.map((t) => t.config.model))],
+		providers: [...new Set(runnableTargets.map((t) => t.config.provider))],
 		total_runs: runPromises.length,
 		successful_runs: successCount,
 		failed_runs: failures.length,

@@ -82,7 +82,9 @@ export function validateScrapeTargets(
 				(spec) => spec.name,
 			);
 			const keyList = keys.length > 0 ? `: ${keys.join(", ")}` : " (see docs)";
-			errors.add(`SCRAPE_TARGETS: provider "${config.provider}" requires API key(s) to be configured${keyList}`);
+			console.log(
+				`SCRAPE_TARGETS: "${config.model}:${config.provider}" has no instance credential${keyList}. It needs organization credentials to run.`,
+			);
 		}
 		if (
 			(config.provider === "openai-api" ||
