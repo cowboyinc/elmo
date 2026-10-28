@@ -8,7 +8,7 @@ import {
 	refreshCredentialOverlay,
 	setOrganizationCredential,
 } from "@workspace/lib/secrets";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import type { Job } from "pg-boss";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ProcessPromptData, processPromptJob } from "./process-prompt";
@@ -18,16 +18,22 @@ vi.mock("../boss", () => ({
 }));
 
 const keysSeen = vi.hoisted(() => new Map<string, string | undefined>());
-vi.mock("@workspace/lib/providers", async (importOriginal) => ({
-	...(await importOriginal<typeof import("@workspace/lib/providers")>()),
-	getProvider: () => ({
-		run: async (_model: string, prompt: string) => {
-			await new Promise((resolve) => setTimeout(resolve, prompt.includes("slow") ? 30 : 1));
-			keysSeen.set(prompt, getCredential("OPENAI_API_KEY"));
-			return { rawOutput: {}, webQueries: [] };
-		},
-	}),
-}));
+vi.mock("@workspace/lib/providers", async (importOriginal) => {
+	const original = await importOriginal<typeof import("@workspace/lib/providers")>();
+	return {
+		...original,
+		getProvider: (id: string) =>
+			id === "openai-api"
+				? {
+						run: async (_model: string, prompt: string) => {
+							await new Promise((resolve) => setTimeout(resolve, prompt.includes("slow") ? 30 : 1));
+							keysSeen.set(prompt, getCredential("OPENAI_API_KEY"));
+							return { rawOutput: {}, webQueries: [] };
+						},
+					}
+				: original.getProvider(id),
+	};
+});
 
 async function createBrandWithPrompt(label: string): Promise<{ orgId: string; promptId: string }> {
 	const orgId = `org-${randomUUID()}`;
@@ -55,6 +61,7 @@ beforeEach(() => {
 	vi.stubEnv("DEPLOYMENT_MODE", "local");
 	vi.stubEnv("SCRAPE_TARGETS", "chatgpt:openai-api");
 	vi.spyOn(console, "log").mockImplementation(() => {});
+	vi.spyOn(console, "warn").mockImplementation(() => {});
 	keysSeen.clear();
 });
 
@@ -97,5 +104,26 @@ describe("processPromptJob credentials", () => {
 			.from(promptRuns)
 			.where(inArray(promptRuns.brandId, created));
 		expect(saved.map((run) => run.brandId).sort()).toEqual([a.orgId, b.orgId].sort());
+	});
+
+	it("runs a brand whose provider key exists only for its organization, calling the provider with that key", async () => {
+		const a = await createBrandWithPrompt("prompt for A");
+		created.push(a.orgId);
+		vi.stubEnv("SCRAPE_TARGETS", "chatgpt:openrouter:openai/gpt-5");
+		vi.stubEnv("OPENROUTER_API_KEY", "");
+		await setOrganizationCredential(a.orgId, "OPENROUTER_API_KEY", "openrouter-key-for-a");
+		await refreshCredentialOverlay();
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async () => Response.json({ choices: [{ message: { content: "Acme" } }], model: "gpt-5" }));
+
+		await processPromptJob([job(a.promptId)]);
+
+		const authorizations = fetchSpy.mock.calls.map(
+			([, init]) => (init?.headers as Record<string, string> | undefined)?.Authorization,
+		);
+		expect(new Set(authorizations)).toEqual(new Set(["Bearer openrouter-key-for-a"]));
+		const saved = await db.select({ id: promptRuns.id }).from(promptRuns).where(eq(promptRuns.brandId, a.orgId));
+		expect(saved).toHaveLength(authorizations.length);
 	});
 });

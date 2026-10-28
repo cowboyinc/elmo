@@ -9,6 +9,7 @@
 
 import { getDeployment } from "@workspace/deployment";
 import { WriteDeniedError } from "@workspace/lib/entitlements";
+import { withOrganization } from "@workspace/lib/secrets";
 import type { z } from "zod";
 import { type ApiAuth, type ApiAuthFailure, principalScopes, resolveApiAuth } from "@/lib/auth/api-auth";
 import type { ApiScope } from "./scopes";
@@ -167,7 +168,9 @@ export function createApiHandler<P = Record<string, string>, B = undefined>(opts
 		if ("response" in parsed) return withRateLimit(parsed.response, auth);
 
 		try {
-			const result = await opts.handle({ params: parsed.params, body: parsed.body, request, auth });
+			const handle = () => opts.handle({ params: parsed.params, body: parsed.body, request, auth });
+			// An organization key's provider credentials are its organization's own.
+			const result = await (auth.kind === "organization" ? withOrganization(auth.organizationId, handle) : handle());
 			const response = result instanceof Response ? result : Response.json(result, { status: opts.status ?? 200 });
 			return withRateLimit(response, auth);
 		} catch (err) {

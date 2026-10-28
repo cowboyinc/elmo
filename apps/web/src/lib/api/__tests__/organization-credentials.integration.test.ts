@@ -1,14 +1,17 @@
 import { db } from "@workspace/lib/db/db";
 import { secrets } from "@workspace/lib/db/schema";
+import { getAvailableProviders } from "@workspace/lib/providers";
 import {
 	clearCredentialOverlay,
 	getCredential,
 	refreshCredentialOverlay,
+	setOrganizationCredential,
 	withOrganization,
 } from "@workspace/lib/secrets";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Route } from "../../../routes/api/v1/organizations/$organizationId/credentials/$name";
+import { createApiHandler } from "../handler";
 import type { ApiScope } from "../scopes";
 
 const caller = vi.hoisted(() => ({ auth: null as unknown }));
@@ -54,7 +57,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-	await db.delete(secrets).where(eq(secrets.name, "OPENAI_API_KEY"));
+	await db.delete(secrets).where(inArray(secrets.organizationId, ["", "org-a"]));
 	clearCredentialOverlay();
 	vi.unstubAllEnvs();
 });
@@ -94,5 +97,27 @@ describe("PUT and DELETE /organizations/:organizationId/credentials/:name", () =
 
 		keyFor("org-a", ["write"]);
 		expect((await call("PUT", "org-a", "DATABASE_URL", { value: "x" })).status).toBe(400);
+	});
+});
+
+describe("an organization key's request", () => {
+	it("sees the providers its organization's credentials configure, and an admin key does not", async () => {
+		vi.stubEnv("OPENROUTER_API_KEY", "");
+		await setOrganizationCredential("org-a", "OPENROUTER_API_KEY", "key-for-a");
+		await refreshCredentialOverlay();
+		const listProviders = createApiHandler({
+			handle: async () => ({
+				openrouterConfigured: getAvailableProviders().filter((provider) => provider.id === "openrouter").length,
+			}),
+		});
+		const request = () => new Request("http://localhost/api/v1", { headers: { Authorization: "Bearer test" } });
+
+		keyFor("org-a", ["read"]);
+		const asOrganization = await listProviders({ request: request(), params: {} });
+		caller.auth = { kind: "admin", scopes: null, organizationId: null };
+		const asAdmin = await listProviders({ request: request(), params: {} });
+
+		expect(await asOrganization.json()).toEqual({ openrouterConfigured: 1 });
+		expect(await asAdmin.json()).toEqual({ openrouterConfigured: 0 });
 	});
 });

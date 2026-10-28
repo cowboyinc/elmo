@@ -227,12 +227,10 @@ async function runModelIteration({
 	const logPrefix = `[${config.model}_${runIndex}]`;
 
 	try {
-		const result = await withOrganization(brand.organizationId, () =>
-			providerImpl.run(config.model, promptValue, {
-				webSearch: config.webSearch,
-				version: config.version,
-			}),
-		);
+		const result = await providerImpl.run(config.model, promptValue, {
+			webSearch: config.webSearch,
+			version: config.version,
+		});
 
 		// `webQueries` is stored exactly as the provider reported it — engines do
 		// sometimes genuinely search the prompt verbatim, and that's real data. The
@@ -310,6 +308,17 @@ async function processPrompt(
 		return;
 	}
 
+	return withOrganization(context.brand.organizationId, () =>
+		runPrompt(promptId, context, scrapeConfigs, consecutiveFailures),
+	);
+}
+
+async function runPrompt(
+	promptId: string,
+	context: PromptContext,
+	scrapeConfigs: ModelConfig[],
+	consecutiveFailures: number,
+): Promise<void> {
 	const { prompt, brand } = context;
 
 	if (!prompt.enabled || !brand.enabled) {
