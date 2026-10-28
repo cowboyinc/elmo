@@ -268,6 +268,17 @@ export function jevAnalyzer(
 
 let current: MentionAnalyzer | undefined;
 
+/** No Jev key resolves for the organization being judged. */
+export class NoJudgeKey extends Error {}
+
+/** For a deployment with no judge key of its own: reads the key per call, so each organization judges with its own. */
+function organizationTransport(openRouterKey: () => string | undefined): JevTransport {
+	return async (request) => {
+		if (!openRouterKey()?.trim()) throw new NoJudgeKey("no TYPESAFE_API_KEY or OPENROUTER_API_KEY to judge with");
+		return openRouterTransport(() => openRouterKey()?.trim())({ ...request, model: OPENROUTER_JEV_MODEL });
+	};
+}
+
 /**
  * A TypeSafe key wins over an OpenRouter one, so setting OPENROUTER_API_KEY for scraping never
  * moves an existing deployment's judge or its bill. The choice is made once: a failing gateway
@@ -291,10 +302,12 @@ export function configureMentionAnalyzer(
 			OPENROUTER_JEV_MODEL,
 			JEV_MODEL,
 		);
-	} else
-		throw new Error(
-			"Elmo judges mentions and sentiment with Jev: set TYPESAFE_API_KEY, or OPENROUTER_API_KEY to call Jev through OpenRouter",
+	} else {
+		console.log(
+			"[mention-judge] No TYPESAFE_API_KEY or instance OPENROUTER_API_KEY: judging with each organization's own OPENROUTER_API_KEY; an organization without one stays unjudged.",
 		);
+		current = jevAnalyzer(adaptivePool(organizationTransport(openRouterKey)), MAX_IN_FLIGHT);
+	}
 	return current;
 }
 

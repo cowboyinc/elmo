@@ -1,7 +1,7 @@
 import type { MentionConfig } from "@workspace/lib/mentions";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cuedAnalyzer as analyzer } from "./__fixtures__/cued-judge";
-import { configureMentionAnalyzer, jevAnalyzer } from "./analyze";
+import { configureMentionAnalyzer, jevAnalyzer, NoJudgeKey } from "./analyze";
 import { JEV_MODEL, type JevRequest, OPENROUTER_JEV_MODEL, stubTransport, TooLarge } from "./jev";
 
 const config: MentionConfig = {
@@ -163,9 +163,15 @@ describe("configureMentionAnalyzer", () => {
 	const noOpenRouter = () => undefined;
 	const openRouter = () => "or-key";
 
-	it("refuses to run without a key, naming both that would do", () => {
-		expect(() => configureMentionAnalyzer("", noOpenRouter)).toThrow(/TYPESAFE_API_KEY.*OPENROUTER_API_KEY/);
-		expect(() => configureMentionAnalyzer("", () => "  ")).toThrow("OPENROUTER_API_KEY");
+	it("boots without a key anywhere, saying judging waits for each organization's own, and calls no one", async () => {
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+		const analyzer = configureMentionAnalyzer("", () => "  ");
+
+		expect(log).toHaveBeenCalledWith(expect.stringContaining("each organization's own OPENROUTER_API_KEY"));
+		await expect(analyzer.analyze("Apple is great.", config)).rejects.toBeInstanceOf(NoJudgeKey);
+		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
 	it("stamps the stub's judgements apart from Jev's, so a real key re-judges them", () => {

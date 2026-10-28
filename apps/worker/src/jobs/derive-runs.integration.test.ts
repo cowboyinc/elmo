@@ -22,7 +22,8 @@ import {
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cuedAnalyzer } from "../mention-judge/__fixtures__/cued-judge";
-import type { MentionAnalyzer } from "../mention-judge/analyze";
+import { configureMentionAnalyzer, type MentionAnalyzer } from "../mention-judge/analyze";
+import { stubTransport } from "../mention-judge/jev";
 import { deriveQueue } from "./__fixtures__/derive-queue";
 import { DERIVE_PRIORITY, deriveRuns, requestUnjudgedRuns, sendDeriveRuns } from "./derive-runs";
 
@@ -47,6 +48,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+	vi.restoreAllMocks();
 	await db.delete(secrets).where(eq(secrets.organizationId, brandId));
 	clearCredentialOverlay();
 	vi.unstubAllEnvs();
@@ -96,6 +98,45 @@ async function currentMentionsStamp() {
 }
 
 describe("deriving a recorded run", () => {
+	describe("with no judge key but the organizations' own", () => {
+		const judgeThroughFetch = () =>
+			vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (_url, init) => Response.json(await stubTransport(JSON.parse(String(init?.body)))));
+
+		beforeEach(() => {
+			vi.stubEnv("ELMO_ENCRYPTION_KEY", Buffer.alloc(32, 7).toString("base64"));
+			vi.stubEnv("OPENROUTER_API_KEY", "");
+			vi.spyOn(console, "log").mockImplementation(() => {});
+			vi.spyOn(console, "warn").mockImplementation(() => {});
+		});
+
+		it("judges a run with its organization's OpenRouter key", async () => {
+			await setOrganizationCredential(brandId, "OPENROUTER_API_KEY", "org-key");
+			await refreshCredentialOverlay();
+			const fetchSpy = judgeThroughFetch();
+			const runId = await recordedRun("Acme is great.");
+
+			await deriveRuns({ brandId, runIds: [runId] }, db, deriveQueue().boss, configureMentionAnalyzer(""));
+
+			expect(fetchSpy.mock.calls.map(([, init]) => new Headers(init?.headers).get("Authorization"))).toEqual([
+				"Bearer org-key",
+			]);
+			expect(await mentionsOf(runId)).toMatchObject({ brandMentioned: true });
+		});
+
+		it("leaves a run unjudged, naming the organization, when it has no key", async () => {
+			const fetchSpy = judgeThroughFetch();
+			const runId = await recordedRun("Acme is great.");
+
+			await deriveRuns({ brandId, runIds: [runId] }, db, deriveQueue().boss, configureMentionAnalyzer(""));
+
+			expect(fetchSpy).not.toHaveBeenCalled();
+			expect(console.warn).toHaveBeenCalledWith(expect.stringContaining(`organization ${brandId} has no judge key`));
+			expect(await mentionsOf(runId)).toBeUndefined();
+		});
+	});
+
 	it("judges with the credentials of the brand's organization", async () => {
 		vi.stubEnv("ELMO_ENCRYPTION_KEY", Buffer.alloc(32, 7).toString("base64"));
 		vi.stubEnv("OPENROUTER_API_KEY", "instance-key");

@@ -29,7 +29,7 @@ import { type Citation, extractorFor, extractRun } from "@workspace/lib/text-ext
 import { and, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { Job, PgBoss, QueueOptions } from "pg-boss";
 import { getBoss } from "../boss";
-import { type MentionAnalyzer, mentionAnalyzer, type RunMentions } from "../mention-judge/analyze";
+import { type MentionAnalyzer, mentionAnalyzer, NoJudgeKey, type RunMentions } from "../mention-judge/analyze";
 
 export const DERIVE_RUNS_QUEUE = "derive-runs";
 
@@ -292,6 +292,27 @@ function writeUpdates(
 	});
 }
 
+/** Null when there is nothing to write, or, with the run left unjudged for the sweep to retry, when the organization has no judge key. */
+async function deriveInOrganization(
+	run: StaleRun,
+	context: NonNullable<Awaited<ReturnType<typeof loadTarget>>>,
+	analyzer: MentionAnalyzer,
+	reextract: boolean,
+): Promise<RunUpdate | null> {
+	try {
+		const update = await withOrganization(context.organizationId, () =>
+			deriveRunUpdate(run, context.target, context.config, analyzer, reextract),
+		);
+		return update.extraction || update.mentions || update.citations ? update : null;
+	} catch (error) {
+		if (!(error instanceof NoJudgeKey)) throw error;
+		console.warn(
+			`[derive-runs] organization ${context.organizationId} has no judge key; leaving run ${run.id} unjudged`,
+		);
+		return null;
+	}
+}
+
 /**
  * Derives one chunk. A run the judge fails on doesn't hold up the others: it goes back to the
  * queue as its own job, which retries alone; a job of one run fails, so the queue retries it.
@@ -311,10 +332,8 @@ export async function deriveRuns(
 	const failed: string[] = [];
 	for (const run of runs) {
 		try {
-			const update = await withOrganization(context.organizationId, () =>
-				deriveRunUpdate(run, context.target, context.config, analyzer, reextract),
-			);
-			if (update.extraction || update.mentions || update.citations) updates.push({ run, update });
+			const update = await deriveInOrganization(run, context, analyzer, reextract);
+			if (update) updates.push({ run, update });
 		} catch (error) {
 			if (data.runIds.length === 1) throw error;
 			console.error(`[derive-runs] run ${run.id} failed; retrying it on its own:`, error);
